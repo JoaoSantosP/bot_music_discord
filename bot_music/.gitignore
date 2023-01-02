@@ -1,3 +1,14 @@
 node_modules
 
 .env
+
+commands
+
+
+./src/utils/
+
+./src/commands/
+
+
+
+lixo.js
