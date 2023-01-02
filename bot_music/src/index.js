@@ -231,7 +231,7 @@ async function createURL(msg) {
   }
 }
 
-
+//
 
 function createEmbed(videoInfo, msg, song) {
   const embedNewResource = new Discord.EmbedBuilder()
