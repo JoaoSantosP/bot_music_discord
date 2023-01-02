@@ -5,9 +5,9 @@ node_modules
 commands
 
 
-./src/utils/
+utils
 
-./src/commands/
+commands
 
 
 
