@@ -1,0 +1,8 @@
+# fly.toml file generated for botmusic on 2023-01-03T16:28:43-03:00
+
+app = "botmusic"
+kill_signal = "SIGINT"
+kill_timeout = 5
+processes = []
+
+[env]
