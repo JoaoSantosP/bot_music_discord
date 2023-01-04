@@ -126,7 +126,7 @@ client.on(Events.MessageCreate, async (msg) => {
 
             msg.channel.send({ embeds: [createEmbed(urlCreated.videoInfos, msg, resource.song)] })
             // msg.reply()
-            return player.play(resource)
+            return player.play(resource.resource)
           }
         })
 
