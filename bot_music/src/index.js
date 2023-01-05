@@ -181,7 +181,7 @@ client.on(Events.VoiceStateUpdate, async (vs) => {
   })
 })
 
-
+//
 client.login(process.env.TOKEN)
 
 function createResource(songsInfo) {
