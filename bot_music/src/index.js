@@ -1,5 +1,5 @@
 
-const { AudioPlayerStatus, joinVoiceChannel, createAudioPlayer, NoSubscriberBehavior, createAudioResource, VoiceConnectionStatus, VoiceConnectionDisconnectReason } = require('@discordjs/voice');
+const { AudioPlayerStatus, joinVoiceChannel, createAudioPlayer, NoSubscriberBehavior, createAudioResource, VoiceConnectionStatus, VoiceConnectionDisconnectReason, entersState } = require('@discordjs/voice');
 
 const Discord = require('discord.js');
 
@@ -119,7 +119,7 @@ client.on(Events.MessageCreate, async (msg) => {
       if (player.state.status === AudioPlayerStatus.Idle) {
         let resource = createResource(queueSongs)
 
-        player.on('stateChange', (o, n) => {
+        player.on('stateChange', async (o, n) => {
           if (n.status === AudioPlayerStatus.Idle && o.status !== AudioPlayerStatus.Idle && queueSongs.length !== 0) {
 
             resource = createResource(queueSongs)
@@ -127,6 +127,15 @@ client.on(Events.MessageCreate, async (msg) => {
             msg.channel.send({ embeds: [createEmbed(urlCreated.videoInfos, msg, resource.song)] })
             // msg.reply()
             return player.play(resource.resource)
+          } if (n.status === AudioPlayerStatus.Idle && o.status !== AudioPlayerStatus.Idle && queueSongs.length === 0) {
+            try {
+              await entersState(player, AudioPlayerStatus.Playing, 40_000)
+              console.log('playing')
+              return player
+            } catch (error) {
+              console.log('disconnect')
+              return connectionServer.servidor.connection.disconnect()
+            }
           }
         })
 
