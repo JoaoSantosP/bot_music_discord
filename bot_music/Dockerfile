@@ -2,8 +2,7 @@ FROM node:alpine
 
 WORKDIR /app
 
-COPY ../bot_music /app/
-
+COPY . .
 
 RUN ["npm", "install"]
 
