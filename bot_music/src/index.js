@@ -68,6 +68,9 @@ client.on(Events.MessageCreate, async (msg) => {
 
 
   if (command === 'play') {
+    if (!channel) {
+      return msg.reply('Voce presisa estar em canal de voz')
+    }
     const arg = args.join().replace(',', ' ')
     console.log(arg);
     let urlCreated = (await createURL(arg))
@@ -87,30 +90,18 @@ client.on(Events.MessageCreate, async (msg) => {
       return;
     }
 
-    /*  videoInfo = await playdl.video_info(urlCreated.videoId)
-     if (!videoInfo) { */
+    
     let videoInfo
     let fileStream
-    /* const isCorrectSong = urlCreated.videoInfos.title.toLowerCase().includes(args[0].toLowerCase())
-    console.log(urlCreated.videoInfos.title, 'title')
-    if (!isCorrectSong) {
-
-      msg.reply('Musica não encontrada, digite novamente')
-      return
-    } else { */
     videoInfo = await playdl.search(urlCreated.url)
     fileStream = await playdl.stream(urlCreated.url)
-    // }
-    /* }
-    fileStream = await playdl.stream_from_info(videoInfo) */
-
     connectionServer.servidor.connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: channel.guild.id,
       adapterCreator: channel.guild.voiceAdapterCreator,
     });
     queueSongs.push({ videoInfo: videoInfo[0], fileStream })
-
+    
     if (player.state.status !== AudioPlayerStatus.Idle) {
       msg.reply(`A música ${videoInfo[0].title} foi adicionada na fila`)
       return
@@ -118,12 +109,12 @@ client.on(Events.MessageCreate, async (msg) => {
     if (queueSongs.length > 0) {
       if (player.state.status === AudioPlayerStatus.Idle) {
         let resource = createResource(queueSongs)
-
+        
         player.on('stateChange', async (o, n) => {
           if (n.status === AudioPlayerStatus.Idle && o.status !== AudioPlayerStatus.Idle && queueSongs.length !== 0) {
-
+            
             resource = createResource(queueSongs)
-
+            
             msg.channel.send({ embeds: [createEmbed(urlCreated.videoInfos, msg, resource.song)] })
             // msg.reply()
             return player.play(resource.resource)
@@ -138,7 +129,7 @@ client.on(Events.MessageCreate, async (msg) => {
             }
           }
         })
-
+        
         player.play(resource.resource)
         connectionServer.servidor.connection.subscribe(player)
         msg.channel.send({ embeds: [createEmbed(urlCreated.videoInfos, msg, resource.song)] })
@@ -149,7 +140,7 @@ client.on(Events.MessageCreate, async (msg) => {
       msg.reply('Queue song  is empty')
       return;
     }
-
+    
   } else if (command === 'skip') {
     if (queueSongs.length === 0 && player.state.status === 'playing') {
       msg.reply('não tem musicas na fila')
@@ -170,8 +161,8 @@ client.on(Events.MessageCreate, async (msg) => {
     msg.reply('Type a valid command')
     return;
   }
-
-
+  
+  
 })
 
 client.on(Events.VoiceStateUpdate, async (vs) => {
@@ -196,10 +187,10 @@ client.login(process.env.TOKEN)
 function createResource(songsInfo) {
   let song
   let index = 0
-
+  
   while (index < songsInfo.length) {
     song = songsInfo[index]
-
+    
     if (song.ended === false) {
       index += 0
     } else {
@@ -207,7 +198,7 @@ function createResource(songsInfo) {
       songsInfo.shift()
     }
   }
-
+  
   const resource = createAudioResource(song.fileStream.stream, { inputType: song.fileStream.type });
   connectionServer.servidor.dispatcher = resource
   return { resource, song }
@@ -222,13 +213,13 @@ async function createURL(msg) {
       part: 'snippet',
       type: 'video'
     }).then((r) => {
-
+      
       return {
         videoId: r.data.items[0].id.videoId,
         title: r.data.items[0].snippet.title,
         channelId: r.data.items[0].snippet.channelId
       }
-
+      
     })
     url += videoInfos.videoId
     if (videoInfos) {
@@ -258,8 +249,21 @@ function createEmbed(videoInfo, msg, song) {
   })
   embedNewResource.setThumbnail(song.videoInfo.thumbnails[0].url)
   /*   else {
-     embedNewResource.setColor('Random')
-       .setDescription('Sem informaçoes sobre a musica')
-   } */
+    embedNewResource.setColor('Random')
+    .setDescription('Sem informaçoes sobre a musica')
+  } */
   return embedNewResource
 }
+
+/*  videoInfo = await playdl.video_info(urlCreated.videoId)
+ if (!videoInfo) { */
+ /* const isCorrectSong = urlCreated.videoInfos.title.toLowerCase().includes(args[0].toLowerCase())
+ console.log(urlCreated.videoInfos.title, 'title')
+ if (!isCorrectSong) {
+   
+   msg.reply('Musica não encontrada, digite novamente')
+   return
+  } else { */
+  // }
+  /* }
+  fileStream = await playdl.stream_from_info(videoInfo) */
