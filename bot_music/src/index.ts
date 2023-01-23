@@ -1,76 +1,58 @@
-
-import { AudioPlayerStatus, joinVoiceChannel, createAudioPlayer, NoSubscriberBehavior, createAudioResource, VoiceConnectionStatus, VoiceConnectionDisconnectReason, AudioPlayer, entersState } from '@discordjs/voice';
+import { AudioPlayerStatus, joinVoiceChannel, createAudioPlayer, NoSubscriberBehavior, createAudioResource, entersState, AudioResource, VoiceConnectionDisconnectReason, VoiceConnectionStatus } from '@discordjs/voice';
 
 import * as Discord from 'discord.js';
 
+import { GatewayIntentBits, Events, ChannelType, Message, Guild, VoiceState } from 'discord.js';
 
+import { validateURL } from 'ytdl-core';
 
-import { GatewayIntentBits, Events, ChannelType, Message } from 'discord.js';
+import playdl from 'play-dl';
 
-
-import { validateURL, validateID } from 'ytdl-core';
-
-import playdl, { SoundCloudStream, YouTubeStream, YouTubeVideo } from 'play-dl';
-
-// import { Params$Resource$Search$List } from 'googleapis';
-import { createQueue, createServersControllers, serverPlayers } from './outros';
+import { youtubeApiType, serverType, songType, resourceCreatedType, urlType } from './types';
 import * as googleApi from 'googleapis';
 
-type youtubeAPi = {
-  version: string,
-  auth: string | undefined
-}
+import * as fs from 'fs'
+
+import * as path from 'path'
 
 const dotenv = require('dotenv').config()
 
-const authenticate: youtubeAPi = {
+const authenticate: youtubeApiType = {
   version: 'v3',
   auth: process.env.GOOGLE_KEY
 }
 
-const youtube: any = new googleApi.youtube_v3.Youtube(authenticate)
+const youtube: googleApi.youtube_v3.Youtube = new googleApi.youtube_v3.Youtube(authenticate)
 
-/* const connectionServer: any = {
-  servidor: {
-    connection: null,
-    dispatcher: null
-  }
-} */
+const servers: Array<serverType> = []
 
-let connectionsServers: any = {}
-
-let serversPlayers: any = {}
-
-let serverPlayer: any
-//////////////////////////////////
-type serverQueue = {
-  guildId?: Array<song> | []
-}
-const connections: serverQueue = {}
 
 const client: Discord.Client = new Discord.Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildVoiceStates] })
 
 const prefix = '!'
 
-let serverId: any
-let queueServers: any
-let servidores: any
-
-let uniqueConnection: any
-
-let player: any
-
-client.on(Events.ClientReady, () => {
-  console.log('bot is ready!')
-  /* */
+client.on(Events.GuildCreate, (guild: Guild) => {
+  const guildId: any | string = guild.id
+  servers[guildId] = {
+    connection: null,
+    dispatcher: null,
+    queue: [],
+    audioPlayer: createAudioPlayer({
+      behaviors: {
+        noSubscriber: NoSubscriberBehavior.Pause
+      }
+    })
+  }
+  saveServer(guildId)
 })
-type song = {
-  videoInfo: YouTubeVideo,
-  fileStream: YouTubeStream | SoundCloudStream
-}
-// let queueSongs: song[] = [];
+client.on(Events.ClientReady, () => {
+  loadServers()
+  console.log('bot is ready!')
+})
 
-client.on(Events.MessageCreate, async (msg: Message) => {
+client.on(Events.MessageCreate, async (msg: Message): Promise<any> => {
+
+  const serverId: string | any = msg.guild?.id
   if (msg.author.bot) return;
   if (msg.channel.type === ChannelType.DM) return;
 
@@ -88,16 +70,16 @@ client.on(Events.MessageCreate, async (msg: Message) => {
     return msg.reply('Conecte-se a um canal de voz')
   }
   if (command === 'play') {
-    const arg = args.join().replace(',', ' ')
+    const arg: string = args.join().replace(',', ' ')
 
     let urlCreated: any = (await createURL(arg))
-
     let urlIsValid
     if (urlCreated.url !== '') {
       urlIsValid = validateURL(urlCreated.url)
     } else {
       urlIsValid = validateURL(arg)
-      urlCreated = { url: arg }
+
+      urlCreated.url = arg
     }
 
     if (!urlIsValid) {
@@ -109,57 +91,58 @@ client.on(Events.MessageCreate, async (msg: Message) => {
     videoInfo = await playdl.search(urlCreated.url)
     fileStream = await playdl.stream(urlCreated.url)
 
-    uniqueConnection = joinVoiceChannel({
+
+
+    servers[serverId].connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: channel.guild.id,
       adapterCreator: channel.guild.voiceAdapterCreator,
     });
-    const song: song = { videoInfo: videoInfo[0], fileStream }
+    const song: songType = { videoInfo: videoInfo[0], fileStream }
 
-    serverId = msg.guild?.id
+    servers[serverId].queue.push(song)
 
-    servidores = createServersControllers(connectionsServers, serverId, uniqueConnection, null)
-
-    queueServers = createQueue(song, serverId, connections)
-
-    player = createAudioPlayer({
-      behaviors: {
-        noSubscriber: NoSubscriberBehavior.Pause
+    servers[serverId].connection!.on('stateChange', async (_oldState: any, newState: any) => {
+      if (servers[serverId].connection!.state.status === VoiceConnectionStatus.Disconnected) {
+        if (newState.reason === VoiceConnectionDisconnectReason.WebSocketClose && newState.closeCode === 4014) {
+          servers[serverId].audioPlayer!.stop()
+          servers[serverId].audioPlayer!.state.status = AudioPlayerStatus.Idle
+          servers[serverId].queue = []
+        }
       }
     })
-    serverPlayer = serverPlayers(serversPlayers, serverId, player)
-
-    if (serverPlayer[serverId].player.state.status !== AudioPlayerStatus.Idle) {
+    if (servers[serverId].audioPlayer?.state.status !== AudioPlayerStatus.Idle) {
       msg.reply(`A música ${videoInfo[0].title} foi adicionada na fila`)
       return
     }
-    if (queueServers[serverId].length > 0) {
-      if (serverPlayer[serverId].player.state.status === AudioPlayerStatus.Idle) {
-        let resource: any = createResource(queueServers[serverId], serverId)
+    if (servers[serverId].queue.length > 0) {
+      if (servers[serverId].audioPlayer?.state.status === AudioPlayerStatus.Idle) {
+        const resource: resourceCreatedType = createResource(servers[serverId].queue, serverId)
 
-        serverPlayer[serverId].player.on('stateChange', async (o: any, n: any) => {
+        servers[serverId].audioPlayer?.on('stateChange', async (o: any, n: any) => {
 
-          if (n.status === AudioPlayerStatus.Idle && o.status !== AudioPlayerStatus.Idle && queueServers[serverId].length !== 0) {
-            resource = createResource(queueServers[serverId], serverId)
+          if (n.status === AudioPlayerStatus.Idle && o.status !== AudioPlayerStatus.Idle && servers[serverId].queue.length !== 0) {
+
+            const resource: resourceCreatedType = createResource(servers[serverId].queue, serverId)
 
             msg.channel.send({ embeds: [createEmbed(urlCreated.videoInfos, msg, resource.song)] })
 
-            return serverPlayer[serverId].player.play(resource.resource)
+            return servers[serverId].audioPlayer?.play(resource.resource)
           }
-          if (n.status === AudioPlayerStatus.Idle && o.status !== AudioPlayerStatus.Idle && queueServers[serverId].length === 0) {
+          if (n.status === AudioPlayerStatus.Idle && o.status !== AudioPlayerStatus.Idle && servers[serverId].queue.length === 0) {
             try {
-              await entersState(serverPlayer[serverId].player, AudioPlayerStatus.Playing, 40_000)
-              return serverPlayer
+              await entersState(servers[serverId].audioPlayer!, AudioPlayerStatus.Playing, 40_000)
+              return servers[serverId]
             } catch (error) {
-              return servidores[serverId].connection.disconnect()
+              return servers[serverId].connection?.disconnect()
             }
           }
         })
 
-        serverPlayer[serverId].player.play(resource.resource)
-        servidores[serverId].connection.subscribe(serverPlayer[serverId].player)
+        servers[serverId].audioPlayer?.play(resource.resource)
+        servers[serverId].connection?.subscribe(servers[serverId].audioPlayer!)
         msg.channel.send({ embeds: [createEmbed(urlCreated.videoInfos, msg, resource.song)] })
-        return servidores
+        return servers[serverId]
       }
     }
     else {
@@ -167,75 +150,41 @@ client.on(Events.MessageCreate, async (msg: Message) => {
       return;
     }
 
-  } else if (command === 'skip') {
-    if (queueServers[serverId].length === 0 && serverPlayer[serverId].player.state.status === 'playing') {
+  }
+  else if (command === 'skip') {
+    if (servers[serverId].queue.length === 0 && servers[serverId].audioPlayer!.state.status === 'playing') {
       msg.reply('não tem musicas na fila')
       return
     }
-    const resource = createResource(queueServers[serverId], serverId)
-    return serverPlayer[serverId].player.play(resource.resource)
-  } else if (command === 'leave') {
-    queueServers[serverId] = []
-    serverPlayer[serverId].player.state.status = AudioPlayerStatus.Idle
-    return servidores[serverId].connection.disconnect()
-  } else if (command === 'stop') {
-    return servidores[serverId].dispatcher.audioPlayer.pause()
-  } else if (command === 'resume') {
-    return servidores[serverId].dispatcher.audioPlayer.unpause()
+    const resource = createResource(servers[serverId].queue, serverId)
+    return servers[serverId].audioPlayer?.play(resource.resource)
+  }
+  else if (command === 'leave') {
+    servers[serverId].queue = []
+    servers[serverId].audioPlayer!.state.status = AudioPlayerStatus.Idle
+    return servers[serverId].connection?.disconnect()
+  }
+  else if (command === 'stop') {
+    return servers[serverId].dispatcher!.audioPlayer!.pause()
+  }
+  else if (command === 'resume') {
+    return servers[serverId].dispatcher?.audioPlayer?.unpause()
   }
   else {
     msg.reply('Type a valid command')
     return;
   }
 
-
 })
-
-/* client.on(Events.VoiceStateUpdate, async (vs) => {
-  const voiceConnection = await connectionsServers[serverId]
-
-
-  if (!voiceConnection.connection && !vs.member?.user.bot) {
-    return
-  }
-  voiceConnection.connection.on('stateChange', async (_oldState: any, newState: any) => {
-    if (newState.status === VoiceConnectionStatus.Disconnected) {
-      if (newState.reason === VoiceConnectionDisconnectReason.WebSocketClose && newState.closeCode === 4014) {
-        serverPlayer[serverId].player.stop()
-        serverPlayer[serverId].player.state.status = AudioPlayerStatus.Idle
-        return voiceConnection.dispatcher.ended = true
-      }
-    }
-  })
-}) */
 
 
 client.login(process.env.TOKEN)
 
-/* function createResource(songsInfo: any, serverId: any) {
-  let song
-  let index = 0
 
-  while (index < songsInfo.length) {
-    song = songsInfo[index]
-
-    if (song.ended === false) {
-      index += 0
-    } else {
-      index += 1
-      songsInfo.shift()
-    }
-  }
-
-  const resource = createAudioResource(song.fileStream.stream, { inputType: song.fileStream.type });
-  servidores[serverId].dispatcher = resource
-  return { resource, song }
-} */
-
-function createResource(songsInfo: any, serverId: any) {
-  let song = songsInfo.shift()
-  const resource = createAudioResource(song.fileStream.stream, { inputType: song.fileStream.type });
-  servidores[serverId].dispatcher = resource
+function createResource(songsInfo: songType[], serverId: string | any) {
+  let song: songType | undefined = songsInfo.shift()
+  const resource: AudioResource = createAudioResource(song!.fileStream.stream, { inputType: song!.fileStream.type });
+  servers[serverId].dispatcher = resource
   return { resource, song }
 }
 
@@ -270,7 +219,7 @@ async function createURL(msg: string) {
 
 function createEmbed(videoInfo: any, msg: any, song: any) {
   const embedNewResource = new Discord.EmbedBuilder()
-  // if (videoInfo.title === song.videoInfo.title) {}
+
   embedNewResource.setColor('Random')
   embedNewResource.setTitle(song.videoInfo.title)
   embedNewResource.addFields({
@@ -283,22 +232,79 @@ function createEmbed(videoInfo: any, msg: any, song: any) {
     inline: true
   })
   embedNewResource.setThumbnail(song.videoInfo.thumbnails[0].url)
-  /*   else {
-    embedNewResource.setColor('Random')
-    .setDescription('Sem informaçoes sobre a musica')
-  } */
+
   return embedNewResource
 }
 
-/*  videoInfo = await playdl.video_info(urlCreated.videoId)
- if (!videoInfo) { */
-/* const isCorrectSong = urlCreated.videoInfos.title.toLowerCase().includes(args[0].toLowerCase())
-console.log(urlCreated.videoInfos.title, 'title')
-if (!isCorrectSong) {
+function loadServers() {
+  const pathServers = path.join(__dirname, '..', 'server.json')
+  fs.readFile(pathServers, 'utf-8', (err: NodeJS.ErrnoException | null, data: string) => {
+    if (err) {
+      console.log(err, 'console.log')
+      throw err
+    }
+    const serversLoaded = JSON.parse(data)
+    for (const guildId of serversLoaded.servers) {
+      if (!servers[guildId]) {
+        servers[guildId] = {
+          connection: null,
+          dispatcher: null,
+          queue: [],
+          audioPlayer: createAudioPlayer({
+            behaviors: {
+              noSubscriber: NoSubscriberBehavior.Pause
+            }
+          })
+        }
+      }
+    }
+  })
+}
 
-  msg.reply('Musica não encontrada, digite novamente')
-  return
-} else { */
-// }
-/* }
-fileStream = await playdl.stream_from_info(videoInfo) */
+function saveServer(guildId: string | any) {
+  const pathServers = path.join(__dirname, 'server.json')
+  fs.readFile(pathServers, 'utf-8', (err: NodeJS.ErrnoException | null, data: string) => {
+    if (err) {
+      console.log(err, 'console.log')
+      throw err
+    }
+    const serversLoaded = JSON.parse(data)
+    serversLoaded.servers.push(guildId)
+    const jsonFyServers = JSON.stringify(serversLoaded)
+    fs.writeFile(pathServers, jsonFyServers, 'utf-8', () => { })
+  })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  /* client.on(Events.VoiceStateUpdate, async (voiceState: VoiceState) => {
+    const serverId: string | any = voiceState.guild.id
+    const voiceConnectionServer: serverType = servers[serverId]
+    console.log('state update')
+  
+    if (!voiceConnectionServer.connection && !voiceState.member?.user.bot) {
+      return
+    }
+    voiceConnectionServer.connection!.on('stateChange', async (_oldState: any, newState: any) => {
+      console.log('state change')
+      if (newState.status === VoiceConnectionStatus.Disconnected) {
+        if (newState.reason === VoiceConnectionDisconnectReason.WebSocketClose && newState.closeCode === 4014) {
+          voiceConnectionServer.audioPlayer!.stop()
+          voiceConnectionServer.audioPlayer!.state.status = AudioPlayerStatus.Idle
+          return voiceConnectionServer.queue = []
+          // return (voiceConnectionServer.dispatcher!.ended as boolean) = true
+        }
+      }
+    })
+  }) */
+}
